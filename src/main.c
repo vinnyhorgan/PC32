@@ -18,18 +18,61 @@
 
 enum {
     OP_NOP = 0,
+    OP_HALT,
     OP_ADD,
+    OP_ADDI,
     OP_AND,
+    OP_ANDI,
+    OP_BEQ,
+    OP_BGE,
+    OP_BGEU,
+    OP_BGT,
+    OP_BGTU,
+    OP_BLE,
+    OP_BLEU,
+    OP_BLT,
+    OP_BLTU,
+    OP_BNE,
+    OP_CMP,
+    OP_CMPI,
+    OP_DIV,
+    OP_DIVI,
+    OP_DIVU,
     OP_JMP,
+    OP_JMPA,
+    OP_JSR,
+    OP_JSRA,
     OP_LD,
+    OP_LDA,
     OP_LDI,
     OP_LDR,
+    OP_MUL,
+    OP_MULI,
+    OP_MULU,
+    OP_NEG,
+    OP_NOT,
+    OP_OR,
+    OP_ORI,
+    OP_POP,
+    OP_PUSH,
+    OP_RET,
+    OP_ST,
+    OP_STA,
+    OP_SUB,
+    OP_SUBI,
+    OP_XOR,
+    OP_XORI
 };
 
 uint8_t memory[MEMORY];
 uint32_t reg[16];
 uint32_t pc;
 uint32_t sp;
+
+bool zero = false;
+bool carry = false;
+bool overflow = false;
+bool negative = false;
 
 bool running = false;
 float speed = 1.0f;
@@ -57,21 +100,18 @@ void reset() {
 
     setSpeed(speed);
 
-    memory[0] = OP_LD;
-    memory[1] = 0;
-    memory[2] = 0;
-    memory[3] = 0;
-    memory[4] = 0;
-    memory[5] = 0x10;
-    memory[6] = OP_LD;
-    memory[7] = 1;
-    memory[8] = 0;
-    memory[9] = 0;
-    memory[10] = 0;
-    memory[11] = 0x10;
-    memory[12] = OP_ADD;
-    memory[13] = 0;
-    memory[14] = 1;
+    reg[7] = 5;
+    reg[4] = 3;
+
+    FILE *file = fopen("out.bin", "rb");
+
+    if (file) {
+        fseek(file, 0, SEEK_END);
+        long size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+        fread(memory, 1, size, file);
+        fclose(file);
+    }
 }
 
 uint8_t readByte(uint32_t address) {
@@ -102,6 +142,17 @@ void writeLong(uint32_t address, uint32_t value) {
     memory[address + 3] = value & 0xFF;
 }
 
+void push(uint32_t value) {
+    sp -= 4;
+    writeLong(sp, value);
+}
+
+uint32_t pop() {
+    uint32_t value = readLong(sp);
+    sp += 4;
+    return value;
+}
+
 int step() {
     int cycles = 0;
 
@@ -123,9 +174,14 @@ int step() {
         pc++;
         r2 = readByte(pc);
         pc++;
-
         reg[r1] += reg[r2];
-
+        cycles = 4;
+        break;
+    case OP_ADDI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] += readLong(pc);
+        pc += 4;
         cycles = 4;
         break;
     case OP_AND:
@@ -133,37 +189,192 @@ int step() {
         pc++;
         r2 = readByte(pc);
         pc++;
-
         reg[r1] &= reg[r2];
+        cycles = 4;
+        break;
+    case OP_ANDI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] &= readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_BEQ:
+        if (zero) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
 
+        cycles = 4;
+        break;
+    case OP_BGE:
+        if (negative || zero) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BGEU:
+        if (carry || zero) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BGT:
+        if (negative) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BGTU:
+        if (negative) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BLE:
+        if (!negative || zero) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BLEU:
+        if (!negative || zero) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BLT:
+        if (negative) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BLTU:
+        if (negative) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_BNE:
+        if (!zero) {
+            pc += readLong(pc);
+        } else {
+            pc += 4;
+        }
+
+        cycles = 4;
+        break;
+    case OP_CMP:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        zero = reg[r1] == reg[r2];
+        carry = reg[r1] > reg[r2];
+        overflow = false;
+        negative = reg[r1] < reg[r2];
+        cycles = 4;
+        break;
+    case OP_CMPI:
+        r1 = readByte(pc);
+        pc++;
+        zero = reg[r1] == readLong(pc);
+        carry = reg[r1] > readLong(pc);
+        overflow = false;
+        negative = reg[r1] < readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_DIV:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] /= reg[r2];
+        cycles = 4;
+        break;
+    case OP_DIVI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] /= readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_DIVU:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] /= reg[r2];
         cycles = 4;
         break;
     case OP_JMP:
         r1 = readByte(pc);
         pc++;
-
-        pc = reg[r1];
-
+        pc = readLong(reg[r1]);
+        cycles = 4;
+        break;
+    case OP_JMPA:
+        pc = readLong(pc);
+        cycles = 4;
+        break;
+    case OP_JSR:
+        r1 = readByte(pc);
+        pc++;
+        push(pc);
+        pc = readLong(reg[r1]);
+        cycles = 4;
+        break;
+    case OP_JSRA:
+        push(pc);
+        pc = readLong(pc);
         cycles = 4;
         break;
     case OP_LD:
         r1 = readByte(pc);
         pc++;
-
-        int address = readLong(pc);
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] = reg[r2];
+        cycles = 4;
+        break;
+    case OP_LDA:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] = readLong(readLong(pc));
         pc += 4;
-
-        reg[r1] = readLong(address);
-
         cycles = 4;
         break;
     case OP_LDI:
         r1 = readByte(pc);
         pc++;
-
         reg[r1] = readLong(pc);
         pc += 4;
-
         cycles = 4;
         break;
     case OP_LDR:
@@ -171,11 +382,126 @@ int step() {
         pc++;
         r2 = readByte(pc);
         pc++;
-
         reg[r1] = readLong(reg[r2]);
-
         cycles = 4;
         break;
+    case OP_MUL:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] *= reg[r2];
+        cycles = 4;
+        break;
+    case OP_MULI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] *= readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_MULU:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] *= reg[r2];
+        cycles = 4;
+        break;
+    case OP_NEG:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] = -reg[r1];
+        cycles = 4;
+        break;
+    case OP_NOT:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] = ~reg[r1];
+        cycles = 4;
+        break;
+    case OP_OR:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] |= reg[r2];
+        cycles = 4;
+        break;
+    case OP_ORI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] |= readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_POP:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] = pop();
+        cycles = 4;
+        break;
+    case OP_PUSH:
+        r1 = readByte(pc);
+        pc++;
+        push(reg[r1]);
+        cycles = 4;
+        break;
+    case OP_RET:
+        pc = pop();
+        cycles = 4;
+        break;
+    case OP_ST:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        writeLong(reg[r2], reg[r1]);
+        cycles = 4;
+        break;
+    case OP_STA:
+        r1 = readByte(pc);
+        pc++;
+        writeLong(readLong(pc), reg[r1]);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_SUB:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] -= reg[r2];
+        cycles = 4;
+        break;
+    case OP_SUBI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] -= readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_XOR:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] ^= reg[r2];
+        cycles = 4;
+        break;
+    case OP_XORI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] ^= readLong(pc);
+        pc += 4;
+        cycles = 4;
+        break;
+    case OP_HALT:
+        running = false;
+        cycles = 4;
+        break;
+    default:
+        printf("Unknown opcode: %02X\n", opcode);
     }
 
     return cycles;
@@ -226,7 +552,7 @@ int main() {
             nk_spacing(ctx, 1);
 
             for (int i = 0; i < 16; i++) {
-                nk_label(ctx, TextFormat("A%d", i), NK_TEXT_LEFT);
+                nk_label(ctx, TextFormat("R %d", i), NK_TEXT_LEFT);
                 nk_label(ctx, TextFormat("%08X", reg[i]), NK_TEXT_LEFT);
             }
 
