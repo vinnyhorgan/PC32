@@ -15,6 +15,7 @@
 #define REFRESH_RATE 60
 #define SCREEN_WIDTH 300
 #define SCREEN_HEIGHT 200
+#define VRAM MEMORY - (SCREEN_WIDTH * SCREEN_HEIGHT * 3)
 
 enum {
     OP_NOP = 0,
@@ -56,12 +57,13 @@ enum {
     OP_POP,
     OP_PUSH,
     OP_RET,
-    OP_ST,
+    OP_STB,
     OP_STA,
     OP_SUB,
     OP_SUBI,
     OP_XOR,
-    OP_XORI
+    OP_XORI,
+    OP_RND,
 };
 
 uint8_t memory[MEMORY];
@@ -79,40 +81,6 @@ float speed = 1.0f;
 int cyclesPerFrame;
 
 int startAddress = 0;
-int endAddress = 1000;
-
-void setSpeed(float spd) {
-    speed = spd;
-    cyclesPerFrame = (int)(speed * 1000000 / REFRESH_RATE);
-}
-
-void reset() {
-    pc = 0;
-    sp = 0;
-
-    for (int i = 0; i < 16; i++) {
-        reg[i] = 0;
-    }
-
-    for (int i = 0; i < MEMORY; i++) {
-        memory[i] = 0;
-    }
-
-    setSpeed(speed);
-
-    reg[7] = 5;
-    reg[4] = 3;
-
-    FILE *file = fopen("out.bin", "rb");
-
-    if (file) {
-        fseek(file, 0, SEEK_END);
-        long size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        fread(memory, 1, size, file);
-        fclose(file);
-    }
-}
 
 uint8_t readByte(uint32_t address) {
     return memory[address];
@@ -151,6 +119,36 @@ uint32_t pop() {
     uint32_t value = readLong(sp);
     sp += 4;
     return value;
+}
+
+void setSpeed(float spd) {
+    speed = spd;
+    cyclesPerFrame = (int)(speed * 1000000 / REFRESH_RATE);
+}
+
+void reset() {
+    pc = 0;
+    sp = VRAM - 4;
+
+    for (int i = 0; i < 16; i++) {
+        reg[i] = 0;
+    }
+
+    for (int i = 0; i < MEMORY; i++) {
+        memory[i] = 0;
+    }
+
+    setSpeed(speed);
+
+    FILE *file = fopen("out.bin", "rb");
+
+    if (file) {
+        fseek(file, 0, SEEK_END);
+        long size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+        fread(memory, 1, size, file);
+        fclose(file);
+    }
 }
 
 int step() {
@@ -201,7 +199,7 @@ int step() {
         break;
     case OP_BEQ:
         if (zero) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -210,7 +208,7 @@ int step() {
         break;
     case OP_BGE:
         if (negative || zero) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -219,7 +217,7 @@ int step() {
         break;
     case OP_BGEU:
         if (carry || zero) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -228,7 +226,7 @@ int step() {
         break;
     case OP_BGT:
         if (negative) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -237,7 +235,7 @@ int step() {
         break;
     case OP_BGTU:
         if (negative) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -246,7 +244,7 @@ int step() {
         break;
     case OP_BLE:
         if (!negative || zero) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -255,7 +253,7 @@ int step() {
         break;
     case OP_BLEU:
         if (!negative || zero) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -264,7 +262,7 @@ int step() {
         break;
     case OP_BLT:
         if (negative) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -273,7 +271,7 @@ int step() {
         break;
     case OP_BLTU:
         if (negative) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -282,7 +280,7 @@ int step() {
         break;
     case OP_BNE:
         if (!zero) {
-            pc += readLong(pc);
+            pc = readLong(pc);
         } else {
             pc += 4;
         }
@@ -315,13 +313,15 @@ int step() {
         pc++;
         r2 = readByte(pc);
         pc++;
-        reg[r1] /= reg[r2];
+        reg[r1] = (int)(reg[r1] / reg[r2]);
+        reg[0] = reg[r1] % reg[r2];
         cycles = 4;
         break;
     case OP_DIVI:
         r1 = readByte(pc);
         pc++;
-        reg[r1] /= readLong(pc);
+        reg[r1] = (int)(reg[r1] / readLong(pc));
+        reg[0] = reg[r1] % readLong(pc);
         pc += 4;
         cycles = 4;
         break;
@@ -330,7 +330,8 @@ int step() {
         pc++;
         r2 = readByte(pc);
         pc++;
-        reg[r1] /= reg[r2];
+        reg[r1] = (int)(reg[r1] / reg[r2]);
+        reg[0] = reg[r1] % reg[r2];
         cycles = 4;
         break;
     case OP_JMP:
@@ -351,7 +352,7 @@ int step() {
         cycles = 4;
         break;
     case OP_JSRA:
-        push(pc);
+        push(pc + 4);
         pc = readLong(pc);
         cycles = 4;
         break;
@@ -451,12 +452,12 @@ int step() {
         pc = pop();
         cycles = 4;
         break;
-    case OP_ST:
+    case OP_STB:
         r1 = readByte(pc);
         pc++;
         r2 = readByte(pc);
         pc++;
-        writeLong(reg[r2], reg[r1]);
+        writeByte(reg[r2], reg[r1]);
         cycles = 4;
         break;
     case OP_STA:
@@ -498,6 +499,14 @@ int step() {
         break;
     case OP_HALT:
         running = false;
+        cycles = cyclesPerFrame;
+        break;
+    case OP_RND:
+        r1 = readByte(pc);
+        pc++;
+        r2 = readByte(pc);
+        pc++;
+        reg[r1] = GetRandomValue(0, r2);
         cycles = 4;
         break;
     default:
@@ -505,6 +514,23 @@ int step() {
     }
 
     return cycles;
+}
+
+void draw() {
+    int offset = 0;
+
+    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
+        int x = i % SCREEN_WIDTH;
+        int y = i / SCREEN_WIDTH;
+
+        uint8_t r = readByte(VRAM + offset + 0);
+        uint8_t g = readByte(VRAM + offset + 1);
+        uint8_t b = readByte(VRAM + offset + 2);
+
+        offset += 3;
+
+        DrawPixel(x, y, (Color){r, g, b, 255});
+    }
 }
 
 int main() {
@@ -536,10 +562,10 @@ int main() {
         virtualMouse.y = (mouse.y - (GetScreenHeight() - (SCREEN_HEIGHT*scale))*0.5f)/scale;
         virtualMouse = Vector2Clamp(virtualMouse, (Vector2){ 0, 0 }, (Vector2){ (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT });
 
-        if (nk_begin(ctx, "CPU", nk_rect(100, 100, 250, 870),
+        if (nk_begin(ctx, "CPU", nk_rect(100, 100, 250, 820),
             NK_WINDOW_BORDER|NK_WINDOW_MOVABLE|NK_WINDOW_TITLE)) {
 
-            nk_layout_row_dynamic(ctx, 30, 2);
+            nk_layout_row_dynamic(ctx, 20, 2);
 
             nk_label(ctx, "PC", NK_TEXT_LEFT);
             nk_label(ctx, TextFormat("%08X", pc), NK_TEXT_LEFT);
@@ -556,8 +582,25 @@ int main() {
                 nk_label(ctx, TextFormat("%08X", reg[i]), NK_TEXT_LEFT);
             }
 
+            nk_label(ctx, "FLAGS", NK_TEXT_LEFT);
+
+            nk_spacing(ctx, 1);
+
+            nk_label(ctx, "ZERO", NK_TEXT_LEFT);
+            nk_label(ctx, TextFormat("%d", zero), NK_TEXT_LEFT);
+
+            nk_label(ctx, "CARRY", NK_TEXT_LEFT);
+            nk_label(ctx, TextFormat("%d", carry), NK_TEXT_LEFT);
+
+            nk_label(ctx, "OVERFLOW", NK_TEXT_LEFT);
+            nk_label(ctx, TextFormat("%d", overflow), NK_TEXT_LEFT);
+
+            nk_label(ctx, "NEGATIVE", NK_TEXT_LEFT);
+            nk_label(ctx, TextFormat("%d", negative), NK_TEXT_LEFT);
+
             nk_label(ctx, "SPEED", NK_TEXT_LEFT);
             nk_label(ctx, TextFormat("%.2f MHz", speed), NK_TEXT_LEFT);
+            nk_property_float(ctx, "Speed", 0.0f, &speed, MAX_SPEED, 0.0001f, 0.0001f);
 
             nk_layout_row_dynamic(ctx, 30, 1);
 
@@ -592,13 +635,20 @@ int main() {
         }
         nk_end(ctx);
 
-        if (nk_begin(ctx, "MEMORY", nk_rect(500, 100, 500, 500),
+        if (nk_begin(ctx, "MEMORY", nk_rect(500, 100, 900, 500),
                 NK_WINDOW_BORDER|NK_WINDOW_MOVABLE|NK_WINDOW_TITLE)) {
 
-            nk_layout_row_dynamic(ctx, 30, 2);
+            nk_layout_row_dynamic(ctx, 30, 3);
 
-            nk_property_int(ctx, "Start Address", 0, &startAddress, 0xFFFFFFFF, 1, 1);
-            nk_property_int(ctx, "End Address", 0, &endAddress, 0xFFFFFFFF, 1, 1);
+            nk_property_int(ctx, "Start Address", 0, &startAddress, MEMORY - 1000, 1, 1);
+
+            if (nk_button_label(ctx, "STACK")) {
+                startAddress = sp;
+            }
+
+            if (nk_button_label(ctx, "CODE")) {
+                startAddress = pc;
+            }
 
             nk_layout_row_dynamic(ctx, 30, 1);
 
@@ -606,16 +656,18 @@ int main() {
 
             nk_spacing(ctx, 1);
 
-            for (int i = startAddress; i < endAddress; i+=16) {
+            for (int i = startAddress; i < startAddress + 1000; i+=16) {
                 nk_layout_row_dynamic(ctx, 30, 17);
 
-                nk_label(ctx, TextFormat("%04X: ", i), NK_TEXT_LEFT);
+                nk_label(ctx, TextFormat("%08X: ", i), NK_TEXT_LEFT);
 
                 for (int j = 0; j < 16; j++) {
                     if (pc == i+j) {
-                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_RIGHT, nk_rgb(255, 0, 0));
+                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_CENTERED, nk_rgb(255, 0, 0));
+                    } else if (sp == i+j) {
+                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_CENTERED, nk_rgb(0, 255, 0));
                     } else {
-                        nk_label(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_RIGHT);
+                        nk_label(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_CENTERED);
                     }
                 }
             }
@@ -632,13 +684,15 @@ int main() {
 
         BeginTextureMode(target);
 
-            ClearBackground(WHITE);
+            ClearBackground(BLACK);
+
+            draw();
 
         EndTextureMode();
 
         BeginDrawing();
 
-            ClearBackground(BLACK);
+            ClearBackground(WHITE);
 
             DrawTexturePro(target.texture, (Rectangle){ 0.0f, 0.0f, (float)target.texture.width, (float)-target.texture.height },
                 (Rectangle){ (GetScreenWidth() - ((float)SCREEN_WIDTH*scale))*0.5f, (GetScreenHeight() - ((float)SCREEN_HEIGHT*scale))*0.5f,

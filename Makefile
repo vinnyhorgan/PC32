@@ -20,6 +20,7 @@ $(BUILD_DIR)/%.c.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run:
+	python ./tools/assembler.py src/test.asm
 	./$(BUILD_DIR)/$(TARGET)
 
 .PHONY: clean
