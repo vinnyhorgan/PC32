@@ -11,11 +11,20 @@
 #define MIN(a, b) ((a)<(b)? (a) : (b))
 
 #define MEMORY (1 << 20)
-#define MAX_SPEED 50.0f
+#define MAX_SPEED 100.0f
 #define REFRESH_RATE 60
-#define SCREEN_WIDTH 300
+#define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 200
 #define VRAM MEMORY - (SCREEN_WIDTH * SCREEN_HEIGHT * 3)
+
+typedef enum {
+    VM_TEXT = 0,
+    VM_BITMAP,
+} VideoMode;
+
+typedef enum {
+    INT_KEYBOARD = 0,
+} Interrupt;
 
 enum {
     OP_NOP = 0,
@@ -64,6 +73,7 @@ enum {
     OP_XOR,
     OP_XORI,
     OP_RND,
+    OP_INT
 };
 
 uint8_t memory[MEMORY];
@@ -82,28 +92,62 @@ int cyclesPerFrame;
 
 int startAddress = 0;
 
+VideoMode videoMode = VM_TEXT;
+
+Interrupt interrupt = -1;
+
 uint8_t readByte(uint32_t address) {
+    if (address > MEMORY) {
+        printf("Invalid memory address: 0x%08X\n", address);
+        exit(1);
+    }
+
     return memory[address];
 }
 
 uint16_t readWord(uint32_t address) {
+    if (address > MEMORY) {
+        printf("Invalid memory address: 0x%08X\n", address);
+        exit(1);
+    }
+
     return (memory[address] << 8) | memory[address + 1];
 }
 
 uint32_t readLong(uint32_t address) {
+    if (address > MEMORY) {
+        printf("Invalid memory address: 0x%08X\n", address);
+        exit(1);
+    }
+
     return (memory[address] << 24) | (memory[address + 1] << 16) | (memory[address + 2] << 8) | memory[address + 3];
 }
 
 void writeByte(uint32_t address, uint8_t value) {
+    if (address > MEMORY) {
+        printf("Invalid memory address: 0x%08X\n", address);
+        exit(1);
+    }
+
     memory[address] = value;
 }
 
 void writeWord(uint32_t address, uint16_t value) {
+    if (address > MEMORY) {
+        printf("Invalid memory address: 0x%08X\n", address);
+        exit(1);
+    }
+
     memory[address] = value >> 8;
     memory[address + 1] = value & 0xFF;
 }
 
 void writeLong(uint32_t address, uint32_t value) {
+    if (address > MEMORY) {
+        printf("Invalid memory address: 0x%08X\n", address);
+        exit(1);
+    }
+
     memory[address] = value >> 24;
     memory[address + 1] = (value >> 16) & 0xFF;
     memory[address + 2] = (value >> 8) & 0xFF;
@@ -148,6 +192,23 @@ void reset() {
         fseek(file, 0, SEEK_SET);
         fread(memory, 1, size, file);
         fclose(file);
+    }
+}
+
+void handleInterrupts() {
+    switch (interrupt) {
+        case INT_KEYBOARD:
+            int key = GetKeyPressed();
+
+            if (key == 0) {
+                running = false;
+            } else {
+                reg[0] = key;
+                running = true;
+                interrupt = -1;
+            }
+
+            break;
     }
 }
 
@@ -509,27 +570,52 @@ int step() {
         reg[r1] = GetRandomValue(0, r2);
         cycles = 4;
         break;
+    case OP_INT:
+        r1 = readByte(pc);
+        pc++;
+
+        interrupt = r1;
+
+        cycles = cyclesPerFrame;
+        break;
     default:
         printf("Unknown opcode: %02X\n", opcode);
     }
+
+    handleInterrupts();
 
     return cycles;
 }
 
 void draw() {
-    int offset = 0;
+    switch (videoMode)
+    {
+    case VM_BITMAP:
+        int offset = 0;
 
-    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        int x = i % SCREEN_WIDTH;
-        int y = i / SCREEN_WIDTH;
+        for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
+            int x = i % SCREEN_WIDTH;
+            int y = i / SCREEN_WIDTH;
 
-        uint8_t r = readByte(VRAM + offset + 0);
-        uint8_t g = readByte(VRAM + offset + 1);
-        uint8_t b = readByte(VRAM + offset + 2);
+            uint8_t r = readByte(VRAM + offset + 0);
+            uint8_t g = readByte(VRAM + offset + 1);
+            uint8_t b = readByte(VRAM + offset + 2);
 
-        offset += 3;
+            offset += 3;
 
-        DrawPixel(x, y, (Color){r, g, b, 255});
+            DrawPixel(x, y, (Color){r, g, b, 255});
+        }
+
+        break;
+    case VM_TEXT:
+        for (int i = 0; i < SCREEN_WIDTH / 8 * SCREEN_HEIGHT / 8; i++) {
+            int x = i % (SCREEN_WIDTH / 8);
+            int y = i / (SCREEN_WIDTH / 8);
+
+            uint8_t c = readByte(VRAM + i);
+
+            DrawText(TextFormat("%c", c), x * 8, y * 8, 8, WHITE);
+        }
     }
 }
 
@@ -681,6 +767,8 @@ int main() {
                 cycles += step();
             }
         }
+
+        handleInterrupts();
 
         BeginTextureMode(target);
 

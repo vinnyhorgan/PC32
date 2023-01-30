@@ -20,6 +20,7 @@ def parselabels():
             if line[0] == ".":
                 label = line[1:].strip()
                 labels[label] = bytes
+                print("Label: " + label + " = " + str(bytes))
 
                 continue
 
@@ -106,7 +107,7 @@ def parselabels():
                 bytes += 2
             elif opcode == "RET":
                 bytes += 1
-            elif opcode == "ST":
+            elif opcode == "STB":
                 bytes += 3
             elif opcode == "STA":
                 bytes += 6
@@ -120,6 +121,8 @@ def parselabels():
                 bytes += 6
             elif opcode == "RND":
                 bytes += 3
+            elif opcode == "INT":
+                bytes += 2
 
         return bytes
 
@@ -352,6 +355,10 @@ def main():
                 r2 = int(token[2].strip())
 
                 write_byte([0x2D, r1, r2])
+            elif opcode == "INT":
+                r1 = int(token[1].strip())
+
+                write_byte([0x2E, r1])
 
     print("Assembled " + str(bytes) + " bytes")
 

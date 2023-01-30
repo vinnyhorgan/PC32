@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS := -Ideps/include -std=c99
+CFLAGS := -Ideps/include -std=c99 -g
 LDFLAGS := -Ldeps/lib -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
 TARGET := pc32
