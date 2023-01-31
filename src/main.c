@@ -13,9 +13,9 @@
 #define MEMORY (1 << 20)
 #define MAX_SPEED 100.0f
 #define REFRESH_RATE 60
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 200
-#define VRAM MEMORY - (SCREEN_WIDTH * SCREEN_HEIGHT * 3)
+#define SCREEN_WIDTH 640
+#define SCREEN_HEIGHT 480
+#define VRAM MEMORY - (SCREEN_WIDTH * SCREEN_HEIGHT)
 
 typedef enum {
     VM_TEXT = 0,
@@ -24,11 +24,18 @@ typedef enum {
 
 typedef enum {
     INT_KEYBOARD = 0,
+    INT_VIDEOMODE,
+    INT_SETCURPOS,
+    INT_GETCURPOS,
+    INT_WRITECHAR,
+    INT_GETPIXEL,
+    INT_SETPIXEL,
+    INT_WRITESTR
 } Interrupt;
 
 enum {
     OP_NOP = 0,
-    OP_HALT,
+    OP_HALT, // 1
     OP_ADD,
     OP_ADDI,
     OP_AND,
@@ -73,7 +80,9 @@ enum {
     OP_XOR,
     OP_XORI,
     OP_RND,
-    OP_INT
+    OP_INT,
+    OP_LDBI,
+    OP_LDBA,
 };
 
 uint8_t memory[MEMORY];
@@ -95,6 +104,30 @@ int startAddress = 0;
 VideoMode videoMode = VM_TEXT;
 
 Interrupt interrupt = -1;
+
+Font dosFont;
+
+int cursorX = 0;
+int cursorY = 0;
+
+Color palette[256] = {
+    (Color){0, 0, 0, 255}, // Black
+    (Color){0, 0, 170, 255}, // Blue
+    (Color){0, 170, 0, 255}, // Green
+    (Color){0, 170, 170, 255}, // Cyan
+    (Color){170, 0, 0, 255}, // Red
+    (Color){170, 0, 170, 255}, // Magenta
+    (Color){170, 85, 0, 255}, // Brown
+    (Color){170, 170, 170, 255}, // Light Gray
+    (Color){85, 85, 85, 255}, // Dark Gray
+    (Color){85, 85, 255, 255}, // Light Blue
+    (Color){85, 255, 85, 255}, // Light Green
+    (Color){85, 255, 255, 255}, // Light Cyan
+    (Color){255, 85, 85, 255}, // Light Red
+    (Color){255, 85, 255, 255}, // Light Magenta
+    (Color){255, 255, 85, 255}, // Yellow
+    (Color){255, 255, 255, 255}, // White
+};
 
 uint8_t readByte(uint32_t address) {
     if (address > MEMORY) {
@@ -184,6 +217,22 @@ void reset() {
 
     setSpeed(speed);
 
+    zero = false;
+    carry = false;
+    overflow = false;
+    negative = false;
+
+    running = false;
+
+    videoMode = VM_TEXT;
+
+    interrupt = -1;
+
+    cursorX = 0;
+    cursorY = 0;
+
+    startAddress = 0;
+
     FILE *file = fopen("out.bin", "rb");
 
     if (file) {
@@ -208,6 +257,41 @@ void handleInterrupts() {
                 interrupt = -1;
             }
 
+            break;
+        case INT_VIDEOMODE:
+            videoMode = reg[0];
+            interrupt = -1;
+            break;
+        case INT_SETCURPOS:
+            cursorX = reg[0];
+            cursorY = reg[1];
+            interrupt = -1;
+            break;
+        case INT_GETCURPOS:
+            reg[0] = cursorX;
+            reg[1] = cursorY;
+            interrupt = -1;
+            break;
+        case INT_WRITECHAR:
+            writeByte(VRAM + cursorX + cursorY * 80, reg[0]);
+            cursorX++;
+            interrupt = -1;
+            break;
+        case INT_SETPIXEL:
+            writeByte(VRAM + reg[0] + reg[1] * 640, reg[2]);
+            interrupt = -1;
+            break;
+        case INT_GETPIXEL:
+            reg[0] = readByte(VRAM + reg[1] + reg[2] * 640);
+            interrupt = -1;
+            break;
+        case INT_WRITESTR:
+            for (int i = 0; i < reg[1]; i++) {
+                writeByte(VRAM + cursorX + cursorY * 80, readByte(reg[0] + i));
+                cursorX++;
+            }
+
+            interrupt = -1;
             break;
     }
 }
@@ -432,11 +516,25 @@ int step() {
         pc += 4;
         cycles = 4;
         break;
+    case OP_LDBA:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] = readByte(readLong(pc));
+        pc += 4;
+        cycles = 4;
+        break;
     case OP_LDI:
         r1 = readByte(pc);
         pc++;
         reg[r1] = readLong(pc);
         pc += 4;
+        cycles = 4;
+        break;
+    case OP_LDBI:
+        r1 = readByte(pc);
+        pc++;
+        reg[r1] = readByte(pc);
+        pc++;
         cycles = 4;
         break;
     case OP_LDR:
@@ -576,7 +674,12 @@ int step() {
 
         interrupt = r1;
 
-        cycles = cyclesPerFrame;
+        if (interrupt == INT_KEYBOARD) {
+            cycles = cyclesPerFrame;
+        } else {
+            cycles = 4;
+        }
+
         break;
     default:
         printf("Unknown opcode: %02X\n", opcode);
@@ -591,19 +694,13 @@ void draw() {
     switch (videoMode)
     {
     case VM_BITMAP:
-        int offset = 0;
-
         for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
             int x = i % SCREEN_WIDTH;
             int y = i / SCREEN_WIDTH;
 
-            uint8_t r = readByte(VRAM + offset + 0);
-            uint8_t g = readByte(VRAM + offset + 1);
-            uint8_t b = readByte(VRAM + offset + 2);
+            uint8_t color = readByte(VRAM + i);
 
-            offset += 3;
-
-            DrawPixel(x, y, (Color){r, g, b, 255});
+            DrawPixel(x, y, palette[color]);
         }
 
         break;
@@ -614,7 +711,7 @@ void draw() {
 
             uint8_t c = readByte(VRAM + i);
 
-            DrawText(TextFormat("%c", c), x * 8, y * 8, 8, WHITE);
+            DrawTextEx(dosFont, TextFormat("%c", c), (Vector2){ x * 8, y * 8 }, dosFont.baseSize, 0, WHITE);
         }
     }
 }
@@ -622,7 +719,7 @@ void draw() {
 int main() {
     SetTraceLogLevel(LOG_NONE);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2, "PC32");
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "PC32");
     SetWindowMinSize(SCREEN_WIDTH, SCREEN_HEIGHT);
     SetTargetFPS(REFRESH_RATE);
 
@@ -631,7 +728,9 @@ int main() {
     RenderTexture2D target = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     SetTextureFilter(target.texture, TEXTURE_FILTER_POINT);
 
-    struct nk_context *ctx = InitNuklear(10);
+    dosFont = LoadFontEx("assets/dos.ttf", 8, 0, 0);
+
+    struct nk_context *ctx = InitNuklearEx(dosFont, 8);
 
     reset();
 
@@ -695,7 +794,7 @@ int main() {
 
             nk_layout_row_dynamic(ctx, 30, 2);
 
-            nk_label(ctx, "CYCLES PER FRAME", NK_TEXT_LEFT);
+            nk_label(ctx, "CPF", NK_TEXT_LEFT);
 
             nk_label(ctx, TextFormat("%d", cyclesPerFrame), NK_TEXT_LEFT);
 
@@ -721,7 +820,7 @@ int main() {
         }
         nk_end(ctx);
 
-        if (nk_begin(ctx, "MEMORY", nk_rect(500, 100, 900, 500),
+        if (nk_begin(ctx, "MEMORY", nk_rect(500, 100, 1000, 500),
                 NK_WINDOW_BORDER|NK_WINDOW_MOVABLE|NK_WINDOW_TITLE)) {
 
             nk_layout_row_dynamic(ctx, 30, 3);
@@ -745,15 +844,15 @@ int main() {
             for (int i = startAddress; i < startAddress + 1000; i+=16) {
                 nk_layout_row_dynamic(ctx, 30, 17);
 
-                nk_label(ctx, TextFormat("%08X: ", i), NK_TEXT_LEFT);
+                nk_label(ctx, TextFormat("%08X:", i), NK_TEXT_LEFT);
 
                 for (int j = 0; j < 16; j++) {
                     if (pc == i+j) {
-                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_CENTERED, nk_rgb(255, 0, 0));
+                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_RIGHT, nk_rgb(255, 0, 0));
                     } else if (sp == i+j) {
-                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_CENTERED, nk_rgb(0, 255, 0));
+                        nk_label_colored(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_RIGHT, nk_rgb(0, 255, 0));
                     } else {
-                        nk_label(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_CENTERED);
+                        nk_label(ctx, TextFormat("%02X", memory[i+j]), NK_TEXT_RIGHT);
                     }
                 }
             }
@@ -792,6 +891,8 @@ int main() {
     }
 
     UnloadNuklear(ctx);
+
+    UnloadFont(dosFont);
 
     UnloadRenderTexture(target);
 

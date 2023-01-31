@@ -20,7 +20,6 @@ def parselabels():
             if line[0] == ".":
                 label = line[1:].strip()
                 labels[label] = bytes
-                print("Label: " + label + " = " + str(bytes))
 
                 continue
 
@@ -83,8 +82,12 @@ def parselabels():
                 bytes += 3
             elif opcode == "LDA":
                 bytes += 6
+            elif opcode == "LDBA":
+                bytes += 6
             elif opcode == "LDI":
                 bytes += 6
+            elif opcode == "LDBI":
+                bytes += 3
             elif opcode == "LDR":
                 bytes += 3
             elif opcode == "MUL":
@@ -123,6 +126,10 @@ def parselabels():
                 bytes += 3
             elif opcode == "INT":
                 bytes += 2
+            elif opcode == "DATAL":
+                bytes += 4
+            elif opcode == "DATAB":
+                bytes += 1
 
         return bytes
 
@@ -264,12 +271,21 @@ def main():
                 write_byte([0x19, r1, r2])
             elif opcode == "LDA":
                 r1 = int(token[1].strip())
-                imm = int(token[2].strip())
+                imm = labels[token[2].strip()]
 
                 write_byte([0x1A, r1, (imm >> 24) & 0xFF, (imm >> 16) & 0xFF, (imm >> 8) & 0xFF, imm & 0xFF])
+            elif opcode == "LDBA":
+                r1 = int(token[1].strip())
+                imm = labels[token[2].strip()]
+
+                write_byte([0x30, r1, (imm >> 24) & 0xFF, (imm >> 16) & 0xFF, (imm >> 8) & 0xFF, imm & 0xFF])
             elif opcode == "LDI":
                 r1 = int(token[1].strip())
-                imm = int(token[2].strip())
+
+                if token[2].strip()[0] == "#":
+                    imm = int(token[2].strip()[1:])
+                else:
+                    imm = labels[token[2].strip()]
 
                 write_byte([0x1B, r1, (imm >> 24) & 0xFF, (imm >> 16) & 0xFF, (imm >> 8) & 0xFF, imm & 0xFF])
             elif opcode == "LDR":
@@ -359,6 +375,22 @@ def main():
                 r1 = int(token[1].strip())
 
                 write_byte([0x2E, r1])
+            elif opcode == "LDBI":
+                r1 = int(token[1].strip())
+                imm = int(token[2].strip()[1:])
+
+                write_byte([0x2F, r1, imm & 0xFF])
+            elif opcode == "DATAL":
+                imm = int(token[1].strip())
+
+                write_byte([(imm >> 24) & 0xFF, (imm >> 16) & 0xFF, (imm >> 8) & 0xFF, imm & 0xFF])
+            elif opcode == "DATAB":
+                if token[1].strip()[0] == "'":
+                    imm = ord(token[1].strip()[1])
+                else:
+                    imm = int(token[1].strip())
+
+                write_byte([imm & 0xFF])
 
     print("Assembled " + str(bytes) + " bytes")
 

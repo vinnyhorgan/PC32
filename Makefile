@@ -20,6 +20,11 @@ $(BUILD_DIR)/%.c.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run:
+	python ./tools/tinybasic.py src/hello.tiny
+	python ./tools/assembler.py out.asm
+	./$(BUILD_DIR)/$(TARGET)
+
+runAsm:
 	python ./tools/assembler.py src/test.asm
 	./$(BUILD_DIR)/$(TARGET)
 
