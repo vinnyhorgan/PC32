@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "raylib.h"
 #include "raymath.h"
@@ -30,7 +31,8 @@ typedef enum {
     INT_WRITECHAR,
     INT_GETPIXEL,
     INT_SETPIXEL,
-    INT_WRITESTR
+    INT_WRITESTR,
+    INT_WRITENUM,
 } Interrupt;
 
 enum {
@@ -288,7 +290,40 @@ void handleInterrupts() {
         case INT_WRITESTR:
             for (int i = 0; i < reg[1]; i++) {
                 writeByte(VRAM + cursorX + cursorY * 80, readByte(reg[0] + i));
-                cursorX++;
+
+                if (cursorX == 80) {
+                    cursorX = 0;
+                    cursorY++;
+                } else {
+                    cursorX++;
+                }
+
+                if (VRAM + cursorX + cursorY * 80 >= VRAM + SCREEN_WIDTH / 8 * SCREEN_HEIGHT / 8) {
+                    cursorX = 0;
+                    cursorY = 0;
+                }
+            }
+
+            interrupt = -1;
+            break;
+        case INT_WRITENUM:
+            char str[16];
+            sprintf(str, "%d", reg[0]);
+
+            for (int i = 0; i < strlen(str); i++) {
+                writeByte(VRAM + cursorX + cursorY * 80, str[i]);
+
+                if (cursorX == 80) {
+                    cursorX = 0;
+                    cursorY++;
+                } else {
+                    cursorX++;
+                }
+
+                if (VRAM + cursorX + cursorY * 80 >= VRAM + SCREEN_WIDTH / 8 * SCREEN_HEIGHT / 8) {
+                    cursorX = 0;
+                    cursorY = 0;
+                }
             }
 
             interrupt = -1;

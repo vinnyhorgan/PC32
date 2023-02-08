@@ -343,7 +343,7 @@ def main():
                 write_byte([0x27, r1, r2])
             elif opcode == "STA":
                 r1 = int(token[1].strip())
-                imm = int(token[2].strip())
+                imm = labels[token[2].strip()]
 
                 write_byte([0x28, r1, (imm >> 24) & 0xFF, (imm >> 16) & 0xFF, (imm >> 8) & 0xFF, imm & 0xFF])
             elif opcode == "SUB":

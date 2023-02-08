@@ -1,5 +1,6 @@
 import sys
 import enum
+import random
 
 # Lexer object keeps track of current position in the source code and produces each token.
 class Lexer:
@@ -270,11 +271,13 @@ class Parser:
             if self.checkToken(TokenType.STRING):
                 # Simple string.
 
-                self.emitter.emitLine("LDI, 0, str")
+                id = random.randint(0, 1000000)
+
+                self.emitter.emitLine("LDI, 0, str" + str(id))
                 self.emitter.emitLine("LDI, 1, #" + str(len(self.curToken.text)))
                 self.emitter.emitLine("INT, 7")
 
-                self.emitter.footerLine(".str")
+                self.emitter.footerLine(".str" + str(id))
 
                 for c in self.curToken.text:
                     self.emitter.footerLine("DATAB, " + str(ord(c)))
@@ -317,7 +320,6 @@ class Parser:
 
         # "LABEL" ident
         elif self.checkToken(TokenType.LABEL):
-            print("STATEMENT-LABEL")
             self.nextToken()
 
             # Make sure this label doesn't already exist.
@@ -325,37 +327,46 @@ class Parser:
                 self.abort("Label already exists: " + self.curToken.text)
             self.labelsDeclared.add(self.curToken.text)
 
+            self.emitter.emitLine("." + self.curToken.text)
+
             self.match(TokenType.IDENT)
 
         # "GOTO" ident
         elif self.checkToken(TokenType.GOTO):
-            print("STATEMENT-GOTO")
             self.nextToken()
             self.labelsGotoed.add(self.curToken.text)
+            self.emitter.emitLine("JMPA, " + self.curToken.text)
             self.match(TokenType.IDENT)
 
         # "LET" ident "=" expression
         elif self.checkToken(TokenType.LET):
-            print("STATEMENT-LET")
             self.nextToken()
 
             #  Check if ident exists in symbol table. If not, declare it.
             if self.curToken.text not in self.symbols:
                 self.symbols.add(self.curToken.text)
+                self.emitter.footerLine("." + self.curToken.text)
 
+            self.emitter.footerEmit("DATAL, ")
             self.match(TokenType.IDENT)
             self.match(TokenType.EQ)
 
             self.expression()
 
+            self.emitter.footerLine("")
+
         # "INPUT" ident
         elif self.checkToken(TokenType.INPUT):
-            print("STATEMENT-INPUT")
             self.nextToken()
 
             # If variable doesn't already exist, declare it.
             if self.curToken.text not in self.symbols:
                 self.symbols.add(self.curToken.text)
+                self.emitter.footerLine("." + self.curToken.text)
+                self.emitter.footerLine("DATAL, 0")
+
+            self.emitter.emitLine("INT, 0")
+            self.emitter.emitLine("STA, 0, " + self.curToken.text)
 
             self.match(TokenType.IDENT)
 
@@ -457,8 +468,14 @@ class Emitter:
     def emitLine(self, code):
         self.code += code + '\n'
 
+    def headerEmit(self, code):
+        self.header += code
+
     def headerLine(self, code):
         self.header += code + '\n'
+
+    def footerEmit(self, code):
+        self.footer += code
 
     def footerLine(self, code):
         self.footer += code + '\n'
